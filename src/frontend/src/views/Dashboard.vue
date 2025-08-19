@@ -59,6 +59,7 @@
               v-if="currentView === 'list'" 
               @edit="handleEditRequirement"
               @view="handleViewRequirement"
+              ref="requirementListRef"
             />
             <RequirementCreate 
               v-if="currentView === 'create'" 
@@ -73,9 +74,10 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore, useRequirementStore } from '../store'
+import api from '../utils/api'
 import RequirementList from '../components/RequirementList.vue'
 import RequirementCreate from '../components/RequirementCreate.vue'
 import { Document, Plus, ArrowDown } from '@element-plus/icons-vue'
@@ -95,6 +97,7 @@ export default {
     const requirementStore = useRequirementStore()
     
     const currentView = ref('list') // 'list' or 'create'
+    const requirementListRef = ref(null)
     
     const handleUserCommand = (command) => {
       if (command === 'logout') {
@@ -137,14 +140,21 @@ export default {
       router.push(`/requirement/${requirement.id}`)
     }
     
-    // 获取需求列表
-    onMounted(async () => {
-      try {
-        // 这里应该调用API获取需求列表
-        // const response = await axios.get('/api/requirements/list')
-        // requirementStore.setRequirements(response.data.requirements)
-      } catch (error) {
-        console.error('获取需求列表失败:', error)
+    // 移除重复的需求列表加载逻辑，由RequirementList组件负责加载
+    // onMounted(async () => {
+    //   try {
+    //     // 调用API获取需求列表
+    //     const response = await api.get('/requirements/list')
+    //     requirementStore.setRequirements(response.data.requirements)
+    //   } catch (error) {
+    //     console.error('获取需求列表失败:', error)
+    //   }
+    // })
+    
+    // 监听视图变化，切换到列表时刷新数据
+    watch(currentView, (newValue) => {
+      if (newValue === 'list' && requirementListRef.value) {
+        requirementListRef.value.fetchRequirements()
       }
     })
     

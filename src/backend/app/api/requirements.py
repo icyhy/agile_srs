@@ -1,12 +1,18 @@
 from flask import Blueprint, request, jsonify, current_app, send_file
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from ..models.requirement import Requirement, UserRequirement, RequirementContent
+from ..models.document import RequirementDocument
 from ..models.user import User
 from .. import db
 from ..utils.llm_integration import DocumentGenerator
 import uuid
 from datetime import datetime
 import os
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 requirements_bp = Blueprint('requirements', __name__)
 
@@ -266,19 +272,23 @@ def submit_content(req_id):
 def generate_document(req_id):
     try:
         current_user_id = get_jwt_identity()
+        logger.info(f"Received request to generate document for requirement: {req_id} by user: {current_user_id}")
         
         # 检查需求任务是否存在
         requirement = Requirement.query.get(req_id)
         if not requirement:
+            logger.warning(f"Requirement not found: {req_id} requested by user: {current_user_id}")
             return jsonify({'message': 'Requirement not found'}), 404
         
         # 检查用户是否有权限访问
         user_req = UserRequirement.query.get((current_user_id, req_id))
         if not user_req:
+            logger.warning(f"Permission denied: User {current_user_id} tried to access requirement {req_id}")
             return jsonify({'message': 'Permission denied'}), 403
         
         # 获取需求的所有内容
         contents = RequirementContent.query.filter_by(requirement_id=req_id).all()
+        logger.info(f"Found {len(contents)} content items for requirement: {req_id}")
         
         # 准备需求数据
         requirement_data = {
@@ -289,33 +299,108 @@ def generate_document(req_id):
         
         # 生成文档
         generator = DocumentGenerator()
+        logger.info(f"Starting document generation for requirement: {req_id} - {requirement.title}")
         document = generator.generate_requirement_doc(requirement_data)
+        
+        logger.info(f"Successfully generated document for requirement: {req_id} - {requirement.title}")
+        
+        # 保存文档版本
+        # 获取当前最新版本号
+        latest_version = db.session.query(db.func.max(RequirementDocument.version))\
+            .filter_by(requirement_id=req_id).scalar() or 0
+        new_version = latest_version + 1
+        
+        # 生成PDF并保存路径
+        generator = DocumentGenerator()
+        pdf_path = generator.export_to_pdf(document, req_id)
+        
+        # 创建文档版本记录
+        doc_record = RequirementDocument(
+            requirement_id=req_id,
+            version=new_version,
+            content=document,
+            pdf_path=pdf_path
+        )
+        
+        db.session.add(doc_record)
+        db.session.commit()
         
         return jsonify({
             'message': 'Document generated successfully',
-            'document': document
+            'document': document,
+            'version': new_version
         }), 200
     except Exception as e:
+        logger.error(f"Error generating document for requirement: {req_id}, error: {str(e)}", exc_info=True)
         return jsonify({'message': 'Error generating document', 'error': str(e)}), 500
+
+@requirements_bp.route('/<req_id>/documents', methods=['GET'])
+@jwt_required()
+def get_requirement_documents(req_id):
+    user_id = get_jwt_identity()
+    
+    # 检查用户权限
+    if not UserRequirement.query.filter_by(
+        user_id=user_id, requirement_id=req_id
+    ).first():  
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    # 获取所有文档版本
+    documents = RequirementDocument.query.filter_by(
+        requirement_id=req_id
+    ).order_by(RequirementDocument.version.desc()).all()
+    
+    return jsonify({
+        'documents': [doc.to_dict() for doc in documents]
+    }), 200
+
+
+@requirements_bp.route('/<req_id>/documents/<int:version>', methods=['GET'])
+@jwt_required()
+def get_requirement_document_version(req_id, version):
+    user_id = get_jwt_identity()
+    
+    # 检查用户权限
+    if not UserRequirement.query.filter_by(
+        user_id=user_id, requirement_id=req_id
+    ).first():  
+        return jsonify({'message': 'Unauthorized access'}), 403
+    
+    # 获取特定版本文档
+    document = RequirementDocument.query.filter_by(
+        requirement_id=req_id, version=version
+    ).first()
+    
+    if not document:
+        return jsonify({'message': 'Document version not found'}), 404
+    
+    return jsonify({
+        'document': document.to_dict()
+    }), 200
+
 
 @requirements_bp.route('/<req_id>/export-pdf', methods=['GET'])
 @jwt_required()
 def export_pdf(req_id):
     try:
         current_user_id = get_jwt_identity()
+        logger.info(f"Received request to export PDF for requirement: {req_id} by user: {current_user_id}")
         
         # 检查需求任务是否存在
         requirement = Requirement.query.get(req_id)
         if not requirement:
+            logger.warning(f"Requirement not found: {req_id} requested by user: {current_user_id}")
             return jsonify({'message': 'Requirement not found'}), 404
         
         # 检查用户是否有权限访问
         user_req = UserRequirement.query.get((current_user_id, req_id))
         if not user_req:
+            logger.warning(f"Permission denied: User {current_user_id} tried to access requirement {req_id}")
             return jsonify({'message': 'Permission denied'}), 403
         
         # 获取需求的所有内容
         contents = RequirementContent.query.filter_by(requirement_id=req_id).all()
+        logger.info(f"Found {len(contents)} content items for requirement: {req_id}")
         
         # 准备需求数据
         requirement_data = {
@@ -326,12 +411,16 @@ def export_pdf(req_id):
         
         # 生成文档
         generator = DocumentGenerator()
+        logger.info(f"Starting document generation for PDF export: {req_id} - {requirement.title}")
         document = generator.generate_requirement_doc(requirement_data)
         
         # 导出PDF
+        logger.info(f"Starting PDF export for requirement: {req_id} - {requirement.title}")
         pdf_path = generator.export_to_pdf(document, req_id)
+        logger.info(f"Successfully exported PDF for requirement: {req_id} - {requirement.title} to {pdf_path}")
         
         # 返回PDF文件
         return send_file(pdf_path, as_attachment=True, download_name=f'requirement-{req_id}.pdf')
     except Exception as e:
+        logger.error(f"Error exporting PDF for requirement: {req_id}, error: {str(e)}", exc_info=True)
         return jsonify({'message': 'Error exporting PDF', 'error': str(e)}), 500

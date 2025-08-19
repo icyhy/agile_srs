@@ -10,8 +10,12 @@ class Config:
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     
     # LLM配置
-    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'your-llm-api-key-here'
-    LLM_MODEL = os.environ.get('LLM_MODEL') or 'gpt-4'
+    # 硅基流动模型服务地址
+    LLM_BASE_URL = os.environ.get('LLM_BASE_URL') or 'https://api.siliconflow.cn/v1'
+    # 模型API密钥
+    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'LLM_API_KEY'
+    # 模型名称
+    LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-ai/DeepSeek-R1'
 
     # Redis配置（用于缓存）
     REDIS_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'

@@ -7,7 +7,7 @@ data = {
     "password": "password123"
 }
 
-response = requests.post('http://localhost:5000/api/users/login', 
+response = requests.post('http://localhost:5001/api/users/login', 
                          headers={'Content-Type': 'application/json'},
                          data=json.dumps(data))
 
@@ -19,7 +19,7 @@ if response.status_code == 200:
     print(f"Token: {token}")
     
     # 使用token获取需求列表
-    response = requests.get('http://localhost:5000/api/requirements/list', 
+    response = requests.get('http://localhost:5001/api/requirements/list', 
                             headers={'Authorization': f'Bearer {token}'})
     
     print(f"Requirements Status Code: {response.status_code}")

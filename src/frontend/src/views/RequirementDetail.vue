@@ -140,7 +140,7 @@
             <div class="document-generation">
               <el-button 
                 type="primary" 
-                @click="generateDocument"
+                @click="generateDocumentHandler"
                 :loading="generating"
                 style="width: 100%"
               >
@@ -154,6 +154,17 @@
                 下载文档
               </el-button>
               <div v-if="generatedDocument" class="document-preview">
+                <div class="version-selector">
+                  <span>文档版本：</span>
+                  <el-select v-model="currentVersion" @change="switchDocumentVersion">
+                    <el-option
+                      v-for="version in documentVersions"
+                      :key="version.version"
+                      :label="`版本 ${version.version} (${formatDate(version.generated_at)})`"
+                      :value="version.version"
+                    />
+                  </el-select>
+                </div>
                 <h4>文档预览</h4>
                 <div class="document-content">
                   {{ generatedDocument }}
@@ -190,7 +201,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore, useRequirementStore } from '../store'
-import axios from 'axios'
+import api, { generateDocument, exportPdf, getDocumentVersions, getDocumentByVersion } from '../utils/api'
 
 export default {
   name: 'RequirementDetail',
@@ -217,7 +228,9 @@ export default {
     const inviteEmail = ref('')
     
     const generatedDocument = ref('')
-    
+    const documentVersions = ref([])
+    const currentVersion = ref(null)
+
     const goBack = () => {
       router.push('/dashboard')
     }
@@ -259,8 +272,8 @@ export default {
           formData.append('file', contentForm.value.file)
         }
         
-        const response = await axios.post(
-          `/api/requirements/${route.params.id}/submit`, 
+        const response = await api.post(
+          `/requirements/${route.params.id}/submit`, 
           formData,
           {
             headers: {
@@ -283,12 +296,29 @@ export default {
       }
     }
     
-    const generateDocument = async () => {
+    const fetchDocumentVersions = async () => {
+      try {
+        const response = await getDocumentVersions(route.params.id)
+        documentVersions.value = response.data.documents
+        // 如果有版本，默认选中最新版本
+        if (documentVersions.value.length > 0) {
+          const latestVersion = documentVersions.value[0]
+          currentVersion.value = latestVersion.version
+          generatedDocument.value = latestVersion.content
+        }
+      } catch (error) {
+        console.error('获取文档版本列表失败:', error)
+      }
+    }
+
+    const generateDocumentHandler = async () => {
       generating.value = true
       try {
-        // 调用API生成文档
-        const response = await axios.post(`/api/requirements/${route.params.id}/generate-document`)
+        const response = await generateDocument(route.params.id)
         generatedDocument.value = response.data.document
+        currentVersion.value = response.data.version
+        // 刷新版本列表
+        await fetchDocumentVersions()
       } catch (error) {
         console.error('生成文档失败:', error)
         alert('生成文档失败')
@@ -297,18 +327,27 @@ export default {
       }
     }
     
+    const switchDocumentVersion = async (version) => {
+      try {
+        const response = await getDocumentByVersion(route.params.id, version)
+        generatedDocument.value = response.data.document.content
+        currentVersion.value = version
+      } catch (error) {
+        console.error('切换文档版本失败:', error)
+        alert('切换文档版本失败')
+      }
+    }
+
     const downloadDocument = async () => {
       try {
         // 调用API下载PDF文档
-        const response = await axios.get(`/api/requirements/${route.params.id}/export-pdf`, {
-          responseType: 'blob'
-        })
+        const response = await exportPdf(route.params.id)
         
         // 创建下载链接
         const url = window.URL.createObjectURL(new Blob([response.data]))
         const link = document.createElement('a')
         link.href = url
-        link.setAttribute('download', `requirement-${route.params.id}.pdf`)
+        link.setAttribute('download', `requirement-${route.params.id}-v${currentVersion.value}.pdf`)
         document.body.appendChild(link)
         link.click()
         link.remove()
@@ -338,7 +377,7 @@ export default {
     const fetchRequirementDetail = async () => {
       try {
         console.log('Fetching requirement detail for ID:', route.params.id)
-        const response = await axios.get(`/api/requirements/${route.params.id}`)
+        const response = await api.get(`/requirements/${route.params.id}`)
         console.log('Requirement detail response:', response.data)
         requirement.value = response.data.requirement
         
@@ -356,7 +395,7 @@ export default {
     const fetchParticipants = async () => {
       try {
         console.log('Fetching participants for requirement ID:', route.params.id)
-        const response = await axios.get(`/api/requirements/${route.params.id}/participants`)
+        const response = await api.get(`/requirements/${route.params.id}/participants`)
         console.log('Participants response:', response.data)
         participants.value = response.data.participants
       } catch (error) {
@@ -369,7 +408,7 @@ export default {
     const fetchSubmittedContents = async () => {
       try {
         console.log('Fetching submitted contents for requirement ID:', route.params.id)
-        const response = await axios.get(`/api/requirements/${route.params.id}/contents`)
+        const response = await api.get(`/requirements/${route.params.id}/contents`)
         console.log('Submitted contents response:', response.data)
         submittedContents.value = response.data.contents
       } catch (error) {
@@ -382,6 +421,7 @@ export default {
       fetchRequirementDetail()
       fetchParticipants()
       fetchSubmittedContents()
+      fetchDocumentVersions()
     })
     
     return {
@@ -395,15 +435,18 @@ export default {
       showInviteDialog,
       inviteEmail,
       generatedDocument,
+      documentVersions,
+      currentVersion,
       goBack,
       formatDate,
       getContentTypeName,
       getRoleName,
       handleFileChange,
       submitContent,
-      generateDocument,
+      generateDocumentHandler,
       downloadDocument,
-      inviteMember
+      inviteMember,
+      switchDocumentVersion
     }
   }
 }

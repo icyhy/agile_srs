@@ -79,12 +79,14 @@ export default {
       fetchRequirements()
     })
     
+    // 暴露刷新方法
     return {
       requirements: requirementStore.requirements,
       loading,
       formatDate,
       handleEdit,
-      handleView
+      handleView,
+      fetchRequirements
     }
   }
 }
