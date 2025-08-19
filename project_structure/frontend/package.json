@@ -1,0 +1,22 @@
+{
+  "name": "agile-srs-frontend",
+  "version": "1.0.0",
+  "description": "User Requirements Research Management System",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "vue-router": "^4.2.4",
+    "pinia": "^2.1.6",
+    "axios": "^1.4.0",
+    "element-plus": "^2.3.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.2.3",
+    "vite": "^4.4.9",
+    "@vue/compiler-sfc": "^3.3.4"
+  }
+}

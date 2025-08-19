@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: agile_srs_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: agile_srs_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    networks:
+      - agile_srs_network
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: agile_srs_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - agile_srs_network
+
+  # 后端Flask应用
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: agile_srs_backend
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_CONFIG=production
+      - DATABASE_URL=mysql+pymysql://user:password@mysql:3306/agile_srs_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=your-secret-key-here
+      - JWT_SECRET_KEY=your-jwt-secret-key-here
+      - LLM_API_KEY=your-llm-api-key-here
+    depends_on:
+      - mysql
+      - redis
+    restart: unless-stopped
+    networks:
+      - agile_srs_network
+
+  # 前端Vue应用
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: agile_srs_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - agile_srs_network
+
+volumes:
+  mysql_data:
+
+networks:
+  agile_srs_network:
+    driver: bridge
