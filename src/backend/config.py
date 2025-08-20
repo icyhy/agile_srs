@@ -13,7 +13,7 @@ class Config:
     # 硅基流动模型服务地址
     LLM_BASE_URL = os.environ.get('LLM_BASE_URL') or 'https://api.siliconflow.cn/v1'
     # 模型API密钥
-    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'sk-placeholder-for-testing'
+    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'LLM_API_KEY_here'
     # 模型名称
     LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-ai/DeepSeek-R1'
 

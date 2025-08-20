@@ -81,7 +81,7 @@ class DocumentGenerator:
         if not self.api_key:
             logger.warning('LLM API key is not configured.')
             self.api_key_valid = False
-        elif self.api_key in ['your-llm-api-key-here', 'LLM_API_KEY']:
+        elif self.api_key in ['your-llm-api-key-here', 'LLM_API_KEY', 'sk-placeholder-for-testing']:
             # 检测默认占位符值
             logger.warning(f'LLM API key is using default placeholder value: {self.api_key}')
             self.api_key_valid = False

@@ -4,7 +4,7 @@
     
     <div class="content-wrapper" v-if="requirement">
       <el-row :gutter="20">
-        <el-col :span="16">
+        <el-col :span="14">
           <div class="main-content">
             <el-card class="box-card">
               <template #header>
@@ -160,7 +160,7 @@
           </div>
         </el-col>
         
-        <el-col :span="8">
+        <el-col :span="10">
           <el-card class="box-card">
             <template #header>
               <div class="card-header">
@@ -996,6 +996,8 @@ const confirmDeleteContent = async () => {
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   overflow: hidden;
+  min-width: 700px;
+  width: 100%;
 }
 
 .editor-header {

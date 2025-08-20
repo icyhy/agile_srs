@@ -7,6 +7,8 @@ from .. import db
 from ..utils.llm_integration import DocumentGenerator
 import uuid
 from datetime import datetime
+from io import BytesIO
+from flask import send_file
 import os
 import time
 import logging
@@ -390,12 +392,30 @@ def get_requirement_document_version(req_id, version):
     }), 200
 
 
+# 为了保持兼容性，保留无版本参数的路由
 @requirements_bp.route('/<req_id>/export-markdown', methods=['GET'])
 @jwt_required()
-def export_markdown(req_id):
+def export_markdown_latest(req_id):
+    try:
+        # 获取最新版本
+        latest_document = RequirementDocument.query.filter_by(requirement_id=req_id)\
+            .order_by(RequirementDocument.version.desc()).first()
+        
+        if latest_document:
+            return export_markdown(req_id, latest_document.version)
+        else:
+            logger.error(f"No document found in database for requirement: {req_id}")
+            return jsonify({'message': 'Failed to download document: No document found in database'}), 404
+    except Exception as e:
+        logger.error(f"Error fetching latest document version: {str(e)}")
+        return jsonify({'message': 'Failed to download document: Database error'}), 500
+
+@requirements_bp.route('/<req_id>/export-markdown/<int:version>', methods=['GET'])
+@jwt_required()
+def export_markdown(req_id, version):
     try:
         current_user_id = get_jwt_identity()
-        logger.info(f"Received request to export Markdown for requirement: {req_id} by user: {current_user_id}")
+        logger.info(f"Received request to export Markdown for requirement: {req_id}, version: {version} by user: {current_user_id}")
         
         # 检查需求任务是否存在
         requirement = Requirement.query.get(req_id)
@@ -409,21 +429,38 @@ def export_markdown(req_id):
             logger.warning(f"Permission denied: User {current_user_id} tried to access requirement {req_id}")
             return jsonify({'message': 'Permission denied'}), 403
         
-        # 获取需求的所有内容
-        contents = RequirementContent.query.filter_by(requirement_id=req_id).all()
-        logger.info(f"Found {len(contents)} content items for requirement: {req_id}")
-        
-        # 准备需求数据
-        requirement_data = {
-            'title': requirement.title,
-            'description': requirement.description,
-            'contents': [content.to_dict() for content in contents]
-        }
-        
-        # 生成文档
-        generator = DocumentGenerator()
-        logger.info(f"Starting document generation for Markdown export: {req_id} - {requirement.title}")
-        document = generator.generate_requirement_doc(requirement_data)
+        # 从数据库获取指定版本的文档
+        try:
+            document = RequirementDocument.query.filter_by(
+                requirement_id=req_id,
+                version=version
+            ).first()
+            
+            if document:
+                logger.info(f"Found document for requirement: {req_id}, version: {version}")
+                document_content = document.content
+
+                # 生成Markdown文件
+                from io import BytesIO
+                buffer = BytesIO()
+                buffer.write(document_content.encode('utf-8'))
+                buffer.seek(0)
+
+                # 设置文件名，包含版本信息
+                file_name = f"requirement_{req_id}_v{version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+
+                return send_file(
+                    buffer,
+                    as_attachment=True,
+                    download_name=file_name,
+                    mimetype='text/markdown'
+                )
+            else:
+                logger.error(f"Document version {version} not found for requirement: {req_id}")
+                return jsonify({'message': f'Failed to download document: Version {version} not found'}), 404
+        except Exception as e:
+            logger.error(f"Error fetching document from database: {str(e)}")
+            return jsonify({'message': 'Failed to download document: Database error'}), 500
         
         # 使用BytesIO而不是临时文件，避免Windows上的文件锁定问题
         from io import BytesIO
