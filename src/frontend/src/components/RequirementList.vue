@@ -9,21 +9,13 @@
         </template>
       </el-table-column>
       <el-table-column prop="status" label="状态" />
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="100">
         <template #default="scope">
           <el-button 
             size="small" 
             @click="handleView(scope.row)"
           >
             查看
-          </el-button>
-          <el-button 
-            size="small" 
-            type="primary" 
-            @click="handleEdit(scope.row)"
-            :disabled="scope.row.role !== 'owner'"
-          >
-            编辑
           </el-button>
         </template>
       </el-table-column>
@@ -42,7 +34,7 @@ import api from '../utils/api'
 
 export default {
   name: 'RequirementList',
-  emits: ['edit', 'view'],
+  emits: ['view'],
   setup(props, { emit }) {
     const requirementStore = useRequirementStore()
     
@@ -53,9 +45,7 @@ export default {
       return date.toLocaleDateString('zh-CN')
     }
     
-    const handleEdit = (requirement) => {
-      emit('edit', requirement)
-    }
+    // 移除了handleEdit函数
     
     const handleView = (requirement) => {
       emit('view', requirement)
@@ -79,12 +69,13 @@ export default {
       fetchRequirements()
     })
     
+    // 暴露刷新方法
     return {
       requirements: requirementStore.requirements,
       loading,
       formatDate,
-      handleEdit,
-      handleView
+      handleView,
+      fetchRequirements
     }
   }
 }
@@ -92,13 +83,28 @@ export default {
 
 <style scoped>
 .requirement-list {
-  min-height: 400px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.el-table {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.el-table__body-wrapper {
+  flex: 1;
+  overflow-y: auto;
 }
 
 .empty-placeholder {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 300px;
+  flex: 1;
 }
 </style>

@@ -4,7 +4,7 @@ import { useUserStore } from '../store'
 // 创建axios实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000
+  timeout: 120000
 })
 
 // 请求拦截器
@@ -12,6 +12,11 @@ api.interceptors.request.use(
   (config) => {
     const userStore = useUserStore()
     const token = userStore.token
+    
+    // 添加防缓存头部
+    config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    config.headers['Pragma'] = 'no-cache'
+    config.headers['Expires'] = '0'
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
@@ -41,4 +46,11 @@ api.interceptors.response.use(
   }
 )
 
+export const generateDocument = (reqId) => api.post(`/requirements/${reqId}/generate-document`);
+export const exportPdf = (reqId) => api.get(`/requirements/${reqId}/export-pdf`, { responseType: 'blob' });
+export const exportMarkdown = (reqId) => api.get(`/requirements/${reqId}/export-markdown`, { responseType: 'blob' });
+export const getDocumentVersions = (reqId) => api.get(`/requirements/${reqId}/documents`);
+export const getDocumentByVersion = (reqId, version) => api.get(`/requirements/${reqId}/documents/${version}`);
+export const getUserByEmail = (email) => api.get(`/users/email/${email}`);
+export const searchUsersByEmail = (emailPrefix) => api.get(`/users/search?email_prefix=${emailPrefix}`);
 export default api

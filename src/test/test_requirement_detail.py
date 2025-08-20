@@ -5,7 +5,7 @@ import json
 
 # 首先登录获取token
 def login():
-    url = 'http://localhost:5000/api/users/login'
+    url = 'http://localhost:5001/api/users/login'
     data = {
         'email': 'test@example.com',
         'password': 'password123'
@@ -20,7 +20,7 @@ def login():
 
 # 创建需求
 def create_requirement(token):
-    url = 'http://localhost:5000/api/requirements/create'
+    url = 'http://localhost:5001/api/requirements/create'
     headers = {
         'Authorization': f'Bearer {token}'
     }
@@ -40,7 +40,7 @@ def create_requirement(token):
 
 # 获取需求列表
 def get_requirements(token):
-    url = 'http://localhost:5000/api/requirements/list'
+    url = 'http://localhost:5001/api/requirements/list'
     headers = {
         'Authorization': f'Bearer {token}'
     }
@@ -54,7 +54,7 @@ def get_requirements(token):
 
 # 获取需求详情
 def get_requirement_detail(token, req_id):
-    url = f'http://localhost:5000/api/requirements/{req_id}'
+    url = f'http://localhost:5001/api/requirements/{req_id}'
     headers = {
         'Authorization': f'Bearer {token}'
     }
@@ -67,7 +67,7 @@ def get_requirement_detail(token, req_id):
 
 # 获取参与者列表
 def get_participants(token, req_id):
-    url = f'http://localhost:5000/api/requirements/{req_id}/participants'
+    url = f'http://localhost:5001/api/requirements/{req_id}/participants'
     headers = {
         'Authorization': f'Bearer {token}'
     }
@@ -80,7 +80,7 @@ def get_participants(token, req_id):
 
 # 获取已提交内容
 def get_contents(token, req_id):
-    url = f'http://localhost:5000/api/requirements/{req_id}/contents'
+    url = f'http://localhost:5001/api/requirements/{req_id}/contents'
     headers = {
         'Authorization': f'Bearer {token}'
     }

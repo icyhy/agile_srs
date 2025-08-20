@@ -3,7 +3,7 @@ import json
 
 def test_admin_login():
     # 后端服务地址
-    base_url = 'http://localhost:5000'
+    base_url = 'http://localhost:5001'
     
     # 登录端点
     login_url = f'{base_url}/api/users/login'

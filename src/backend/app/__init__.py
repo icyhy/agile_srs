@@ -20,8 +20,10 @@ def create_app(config_name='default'):
     # 注册蓝图
     from .api.users import users_bp
     from .api.requirements import requirements_bp
+    from .utils.llm_integration import test_blueprint
     
     app.register_blueprint(users_bp, url_prefix='/api/users')
     app.register_blueprint(requirements_bp, url_prefix='/api/requirements')
+    app.register_blueprint(test_blueprint)
     
     return app
