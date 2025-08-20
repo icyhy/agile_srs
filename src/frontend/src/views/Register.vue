@@ -2,7 +2,7 @@
   <div class="register-container">
     <div class="register-form">
       <h2>注册账户</h2>
-      <el-form :model="registerForm" :rules="rules" ref="registerForm">
+      <el-form :model="registerForm" :rules="rules" ref="formRef">
         <el-form-item prop="username">
           <el-input 
             v-model="registerForm.username" 
@@ -64,17 +64,19 @@ export default {
   setup() {
     const router = useRouter()
     
-    const registerForm = ref({
+    const registerForm = reactive({
       username: '',
       email: '',
       password: '',
       confirmPassword: ''
     })
     
+    const formRef = ref(null)
+    
     const loading = ref(false)
     
     const validatePassword = (rule, value, callback) => {
-      if (value !== registerForm.value.password) {
+      if (value !== registerForm.password) {
         callback(new Error('两次输入的密码不一致'))
       } else {
         callback()
@@ -103,7 +105,7 @@ export default {
     const handleRegister = async () => {
       loading.value = true
       try {
-        const { username, email, password } = registerForm.value
+        const { username, email, password } = registerForm
         await axios.post('/api/users/register', { username, email, password })
         
         alert('注册成功，请登录')
@@ -122,6 +124,7 @@ export default {
     
     return {
       registerForm,
+      formRef,
       loading,
       rules,
       handleRegister,

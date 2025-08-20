@@ -48,6 +48,9 @@ api.interceptors.response.use(
 
 export const generateDocument = (reqId) => api.post(`/requirements/${reqId}/generate-document`);
 export const exportPdf = (reqId) => api.get(`/requirements/${reqId}/export-pdf`, { responseType: 'blob' });
+export const exportMarkdown = (reqId) => api.get(`/requirements/${reqId}/export-markdown`, { responseType: 'blob' });
 export const getDocumentVersions = (reqId) => api.get(`/requirements/${reqId}/documents`);
 export const getDocumentByVersion = (reqId, version) => api.get(`/requirements/${reqId}/documents/${version}`);
+export const getUserByEmail = (email) => api.get(`/users/email/${email}`);
+export const searchUsersByEmail = (emailPrefix) => api.get(`/users/search?email_prefix=${emailPrefix}`);
 export default api

@@ -13,7 +13,7 @@ class Config:
     # 硅基流动模型服务地址
     LLM_BASE_URL = os.environ.get('LLM_BASE_URL') or 'https://api.siliconflow.cn/v1'
     # 模型API密钥
-    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'LLM_API_KEY'
+    LLM_API_KEY = os.environ.get('LLM_API_KEY') or 'sk-placeholder-for-testing'
     # 模型名称
     LLM_MODEL = os.environ.get('LLM_MODEL') or 'deepseek-ai/DeepSeek-R1'
 
@@ -25,6 +25,8 @@ class DevelopmentConfig(Config):
     DEBUG = True
     SQLALCHEMY_DATABASE_URI = os.environ.get('DEV_DATABASE_URL') or \
         'sqlite:///app.db'
+    # 开发环境下，禁用文件系统的临时文件自动删除，便于调试
+    TEMPFILE_DELETE_ON_CLOSE = False
 
 
 class ProductionConfig(Config):

@@ -22,6 +22,7 @@ class Requirement(db.Model):
             'title': self.title,
             'description': self.description,
             'creator_id': self.creator_id,
+            'creator_name': self.creator.username if self.creator else 'Unknown',
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
             'status': self.status

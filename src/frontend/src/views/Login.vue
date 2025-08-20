@@ -99,6 +99,9 @@ export default {
         userStore.setToken(access_token)
         userStore.setUser(user)
         
+        // 添加调试日志
+        console.log('User info after login:', userStore.userInfo);
+        
         router.push('/dashboard')
       } catch (error) {
         console.error('Login failed:', error)

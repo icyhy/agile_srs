@@ -8,6 +8,7 @@ from ..utils.llm_integration import DocumentGenerator
 import uuid
 from datetime import datetime
 import os
+import time
 import logging
 
 # 配置日志
@@ -72,7 +73,8 @@ def invite_member(req_id):
             return jsonify({'message': 'Requirement not found'}), 404
         
         # 验证当前用户是任务创建者
-        if requirement.creator_id != current_user_id:
+        # 确保类型一致再比较
+        if str(requirement.creator_id) != current_user_id:
             return jsonify({'message': 'Permission denied'}), 403
         
         # 邀请用户
@@ -116,8 +118,17 @@ def list_requirements():
         # 查询需求任务
         requirements = Requirement.query.filter(Requirement.id.in_(req_ids)).all()
         
+        # 为每个需求添加用户角色信息
+        requirements_with_role = []
+        for req in requirements:
+            # 查找当前用户在该需求中的角色
+            user_req = UserRequirement.query.get((current_user_id, req.id))
+            req_dict = req.to_dict()
+            req_dict['role'] = user_req.role if user_req else 'member'
+            requirements_with_role.append(req_dict)
+        
         return jsonify({
-            'requirements': [req.to_dict() for req in requirements]
+            'requirements': requirements_with_role
         }), 200
     except Exception as e:
         return jsonify({'message': 'Error fetching requirements', 'error': str(e)}), 500
@@ -222,9 +233,11 @@ def submit_content(req_id):
         # 处理文本内容
         text_content = request.form.get('text', '')
         
+        # 获取前端传递的内容类型，如果没有则默认为'text'
+        content_type = request.form.get('content_type', 'text')
+        
         # 处理文件上传
         file_path = None
-        content_type = 'text'
         
         if 'file' in request.files:
             file = request.files['file']
@@ -239,19 +252,21 @@ def submit_content(req_id):
                 file_path = os.path.join(upload_dir, filename)
                 file.save(file_path)
                 
-                # 确定内容类型
-                if file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    content_type = 'image'
-                elif file.filename.lower().endswith('.mp3'):
-                    content_type = 'audio'
-                else:
-                    content_type = 'file'
+                # 如果上传了文件，但内容类型已经设置为markdown，则保留markdown类型
+                # 否则根据文件类型设置内容类型
+                if content_type != 'markdown':
+                    if file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                        content_type = 'image'
+                    elif file.filename.lower().endswith('.mp3'):
+                        content_type = 'audio'
+                    else:
+                        content_type = 'file'
         
         # 保存内容记录
         content_record = RequirementContent(
             requirement_id=req_id,
             content_type=content_type,
-            content_text=text_content if content_type == 'text' else None,
+            content_text=text_content if content_type in ['text', 'markdown'] else None,
             file_path=file_path,
             submitted_by=current_user_id
         )
@@ -310,16 +325,12 @@ def generate_document(req_id):
             .filter_by(requirement_id=req_id).scalar() or 0
         new_version = latest_version + 1
         
-        # 生成PDF并保存路径
-        generator = DocumentGenerator()
-        pdf_path = generator.export_to_pdf(document, req_id)
-        
-        # 创建文档版本记录
+        # 创建文档版本记录（不再生成PDF）
         doc_record = RequirementDocument(
             requirement_id=req_id,
             version=new_version,
             content=document,
-            pdf_path=pdf_path
+            pdf_path=None  # PDF不再生成，设为None
         )
         
         db.session.add(doc_record)
@@ -379,12 +390,12 @@ def get_requirement_document_version(req_id, version):
     }), 200
 
 
-@requirements_bp.route('/<req_id>/export-pdf', methods=['GET'])
+@requirements_bp.route('/<req_id>/export-markdown', methods=['GET'])
 @jwt_required()
-def export_pdf(req_id):
+def export_markdown(req_id):
     try:
         current_user_id = get_jwt_identity()
-        logger.info(f"Received request to export PDF for requirement: {req_id} by user: {current_user_id}")
+        logger.info(f"Received request to export Markdown for requirement: {req_id} by user: {current_user_id}")
         
         # 检查需求任务是否存在
         requirement = Requirement.query.get(req_id)
@@ -411,16 +422,138 @@ def export_pdf(req_id):
         
         # 生成文档
         generator = DocumentGenerator()
-        logger.info(f"Starting document generation for PDF export: {req_id} - {requirement.title}")
+        logger.info(f"Starting document generation for Markdown export: {req_id} - {requirement.title}")
         document = generator.generate_requirement_doc(requirement_data)
         
-        # 导出PDF
-        logger.info(f"Starting PDF export for requirement: {req_id} - {requirement.title}")
-        pdf_path = generator.export_to_pdf(document, req_id)
-        logger.info(f"Successfully exported PDF for requirement: {req_id} - {requirement.title} to {pdf_path}")
+        # 使用BytesIO而不是临时文件，避免Windows上的文件锁定问题
+        from io import BytesIO
+        import os
         
-        # 返回PDF文件
-        return send_file(pdf_path, as_attachment=True, download_name=f'requirement-{req_id}.pdf')
+        # 准备文件名
+        safe_title = requirement.title.replace(' ', '_').replace('/', '_')[:50]
+        filename = f"{safe_title}_v{int(time.time())}.md"
+        
+        # 将文档内容转换为字节流
+        file_stream = BytesIO()
+        file_stream.write(document.encode('utf-8'))
+        file_stream.seek(0)
+        
+        logger.info(f"Successfully created Markdown content for requirement: {req_id} - {requirement.title}")
+        
+        # 返回文档内容作为附件下载
+        return send_file(
+            file_stream,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='text/markdown',
+            max_age=0  # 禁用缓存
+        )
     except Exception as e:
-        logger.error(f"Error exporting PDF for requirement: {req_id}, error: {str(e)}", exc_info=True)
-        return jsonify({'message': 'Error exporting PDF', 'error': str(e)}), 500
+          logger.error(f"Error exporting Markdown for requirement: {req_id}, error: {str(e)}", exc_info=True)
+          return jsonify({'message': 'Failed to export Markdown', 'error': str(e)}), 500
+
+@requirements_bp.route('/<req_id>/remove_participant/<user_id>', methods=['DELETE'])
+@jwt_required()
+def remove_participant(req_id, user_id):
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # 检查需求任务是否存在
+        requirement = Requirement.query.get(req_id)
+        if not requirement:
+            return jsonify({'message': 'Requirement not found'}), 404
+        
+        # 验证当前用户是任务创建者
+        if str(requirement.creator_id) != current_user_id:
+            return jsonify({'message': 'Permission denied'}), 403
+        
+        # 不能删除自己
+        if str(user_id) == current_user_id:
+            return jsonify({'message': 'Cannot remove yourself'}), 400
+        
+        # 检查用户是否是参与者
+        user_req = UserRequirement.query.get((user_id, req_id))
+        if not user_req:
+            return jsonify({'message': 'User is not a participant'}), 400
+        
+        # 删除用户-需求关联
+        db.session.delete(user_req)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Participant removed successfully'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Error removing participant', 'error': str(e)}), 500
+
+@requirements_bp.route('/<req_id>/content/<content_id>', methods=['DELETE'])
+@jwt_required()
+def delete_content(req_id, content_id):
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # 检查需求任务是否存在
+        requirement = Requirement.query.get(req_id)
+        if not requirement:
+            return jsonify({'message': 'Requirement not found'}), 404
+        
+        # 检查内容是否存在
+        content = RequirementContent.query.get(content_id)
+        if not content:
+            return jsonify({'message': 'Content not found'}), 404
+        
+        # 检查内容是否属于该需求
+        if content.requirement_id != req_id:
+            return jsonify({'message': 'Content does not belong to this requirement'}), 400
+        
+        # 检查用户是否有权限删除（只能删除自己提交的内容）
+        if str(content.submitted_by) != current_user_id:
+            return jsonify({'message': 'Permission denied'}), 403
+        
+        # 删除内容
+        db.session.delete(content)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Content deleted successfully'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Error deleting content', 'error': str(e)}), 500
+
+@requirements_bp.route('/<req_id>', methods=['PUT'])
+@jwt_required()
+def update_requirement(req_id):
+    try:
+        # 注意：get_jwt_identity()返回的是字符串类型，需要转换为整数
+        current_user_id = int(get_jwt_identity())
+        data = request.get_json()
+        
+        # 检查需求任务是否存在
+        requirement = Requirement.query.get(req_id)
+        if not requirement:
+            return jsonify({'message': 'Requirement not found'}), 404
+        
+        # 检查用户是否有权限编辑（只有创建者可以编辑）
+        if requirement.creator_id != current_user_id:
+            return jsonify({'message': 'Permission denied'}), 403
+        
+        # 更新需求信息
+        if 'title' in data:
+            requirement.title = data['title']
+        if 'description' in data:
+            requirement.description = data['description']
+        if 'status' in data:
+            requirement.status = data['status']
+        
+        requirement.updated_at = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Requirement updated successfully',
+            'requirement': requirement.to_dict()
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Error updating requirement', 'error': str(e)}), 500

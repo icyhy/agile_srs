@@ -78,3 +78,32 @@ def profile():
         return jsonify({'user': user.to_dict()}), 200
     except Exception as e:
         return jsonify({'message': 'Error fetching profile', 'error': str(e)}), 500
+
+@users_bp.route('/email/<email>', methods=['GET'])
+@jwt_required()
+def get_user_by_email(email):
+    try:
+        user = User.query.filter_by(email=email).first()
+        
+        if not user:
+            return jsonify({'message': 'User not found'}), 404
+        
+        return jsonify({'user': user.to_dict()}), 200
+    except Exception as e:
+        return jsonify({'message': 'Error fetching user by email', 'error': str(e)}), 500
+
+@users_bp.route('/search', methods=['GET'])
+@jwt_required()
+def search_users():
+    try:
+        email_prefix = request.args.get('email_prefix', '')
+        
+        if not email_prefix:
+            return jsonify({'users': []}), 200
+        
+        # 根据邮箱前缀搜索用户
+        users = User.query.filter(User.email.like(f'{email_prefix}%')).limit(10).all()
+        
+        return jsonify({'users': [user.to_dict() for user in users]}), 200
+    except Exception as e:
+        return jsonify({'message': 'Error searching users', 'error': str(e)}), 500

@@ -5,12 +5,16 @@
       :rules="rules" 
       ref="formRef" 
       label-width="100px"
+      class="create-form"
+      size="large"
     >
       <el-form-item label="需求标题" prop="title">
         <el-input 
           v-model="form.title" 
           placeholder="请输入需求标题"
           clearable
+          size="large"
+          class="large-input"
         />
       </el-form-item>
       
@@ -18,8 +22,10 @@
         <el-input 
           v-model="form.description" 
           type="textarea" 
-          :rows="4"
+          :rows="8"
           placeholder="请输入需求描述"
+          resize="vertical"
+          class="large-textarea"
         />
       </el-form-item>
       
@@ -28,10 +34,14 @@
           type="primary" 
           @click="handleSubmit" 
           :loading="loading"
+          size="large"
         >
           创建需求
         </el-button>
-        <el-button @click="handleCancel">
+        <el-button 
+          @click="handleCancel"
+          size="large"
+        >
           取消
         </el-button>
       </el-form-item>
@@ -107,8 +117,50 @@ export default {
 </script>
 
 <style scoped>
+/* 确保与列表页面标题栏高度一致 */
 .requirement-create {
-  max-width: 600px;
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* 表单样式优化 */
+.create-form {
+  width: 100%;
+}
+
+.create-form .el-form-item {
+  margin-bottom: 24px;
+}
+
+.create-form .el-form-item__label {
+  font-weight: 500;
+  font-size: 14px;
+  padding: 12px 12px 12px 0;
+}
+
+/* 输入框样式优化 - 宽度最大化 */
+.create-form .el-input,
+.create-form .el-input__wrapper {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.large-input {
+  height: 50px;
+  font-size: 14px;
+  --el-input-height: 50px;
+}
+
+.large-textarea {
+  font-size: 14px;
+  min-height: 160px;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* 按钮样式优化 */
+.create-form .el-button {
+  margin-right: 12px;
 }
 </style>
