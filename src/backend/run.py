@@ -1,4 +1,9 @@
 import os
+from dotenv import load_dotenv
+
+# 加载.env文件中的环境变量
+load_dotenv()
+
 from app import create_app, db
 from app.models.user import User
 from app.models.requirement import Requirement, UserRequirement, RequirementContent

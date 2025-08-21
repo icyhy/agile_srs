@@ -12,13 +12,17 @@ test_blueprint = Blueprint('test', __name__, url_prefix='/api/test')
 def test_config():
     """测试配置读取的API端点"""
     if current_app:
+        # 同时显示环境变量和Flask配置中的值，方便调试
         config_info = {
-            'LLM_API_KEY': current_app.config.get('LLM_API_KEY', 'Not found'),
-            'LLM_MODEL': current_app.config.get('LLM_MODEL', 'Not found'),
-            'LLM_BASE_URL': current_app.config.get('LLM_BASE_URL', 'Not found'),
+            'env_LLM_API_KEY': 'Set' if os.environ.get('LLM_API_KEY') else 'Not set',
+            'flask_LLM_API_KEY': current_app.config.get('LLM_API_KEY', 'Not found'),
+            'env_LLM_MODEL': os.environ.get('LLM_MODEL', 'Not found'),
+            'flask_LLM_MODEL': current_app.config.get('LLM_MODEL', 'Not found'),
+            'env_LLM_BASE_URL': os.environ.get('LLM_BASE_URL', 'Not found'),
+            'flask_LLM_BASE_URL': current_app.config.get('LLM_BASE_URL', 'Not found'),
             'FLASK_CONFIG': os.getenv('FLASK_CONFIG', 'default')
         }
-        logging.info(f"Current Flask config: {config_info}")
+        logging.info(f"Current configuration: {config_info}")
         return jsonify(config_info), 200
     else:
         return jsonify({'error': 'No Flask app context'}), 500
@@ -30,42 +34,35 @@ logger = logging.getLogger(__name__)
 
 class DocumentGenerator:
     def __init__(self, api_key=None, model=None, base_url=None):
-        # 优先从Flask配置中获取
+        # 优先使用直接传入的参数
+        # 然后使用环境变量（从.env文件加载的）
+        # 最后才使用Flask应用配置
+        
+        # 获取环境变量
+        env_api_key = os.getenv('LLM_API_KEY', 'Not found')
+        env_model = os.getenv('LLM_MODEL', 'deepseek-ai/DeepSeek-R1')
+        env_base_url = os.getenv('LLM_BASE_URL', 'https://api.siliconflow.cn/v1')
+        
+        logger.info(f"Environment variables - LLM_API_KEY: {'Set' if env_api_key and env_api_key != 'Not found' else 'Not set'}, LLM_MODEL: {env_model}, LLM_BASE_URL: {env_base_url}")
+        
+        # 获取Flask应用配置（如果有）
+        flask_api_key = None
+        flask_model = None
+        flask_base_url = None
+        
         if current_app:
-            # 打印当前配置环境信息
-            current_config_name = os.getenv('FLASK_CONFIG', 'default')
-            logger.info(f"Current Flask configuration name: {current_config_name}")
-            
-            # 获取并记录所有LLM相关配置
-            config_model = current_app.config.get('LLM_MODEL', 'DeepSeek-R1')
-            config_api_key = current_app.config.get('LLM_API_KEY', 'Not found')
-            config_base_url = current_app.config.get('LLM_BASE_URL', 'Not found')
-            
-            # 检查配置来源
-            logger.info(f"Flask app config - LLM_API_KEY: {config_api_key}, LLM_MODEL: {config_model}, LLM_BASE_URL: {config_base_url}")
-            
-            # 打印配置文件内容进行调试
-            try:
-                import config
-                logger.info(f"Direct config import - LLM_API_KEY: {config.Config.LLM_API_KEY}, LLM_MODEL: {config.Config.LLM_MODEL}")
-            except Exception as e:
-                logger.warning(f"Failed to directly import config: {str(e)}")
-            
-            self.api_key = api_key or config_api_key
-            self.model = model or config_model
-            self.base_url = base_url or config_base_url
-            logger.info(f"Loading LLM configuration from Flask app - Model: {self.model}, Base URL: {self.base_url}")
-            logger.info(f"Final API key value before setting: {self.api_key}")
-        else:
-            env_model = os.getenv('LLM_MODEL', 'DeepSeek-R1')
-            env_api_key = os.getenv('LLM_API_KEY', 'Not found')
-            env_base_url = os.getenv('LLM_BASE_URL', 'Not found')
-            logger.info(f"Environment variables - LLM_API_KEY: {env_api_key}, LLM_MODEL: {env_model}, LLM_BASE_URL: {env_base_url}")
-            
-            self.api_key = api_key or env_api_key
-            self.model = model or env_model
-            self.base_url = base_url or env_base_url
-            logger.info(f"Loading LLM configuration from environment - Model: {self.model}, Base URL: {self.base_url}")
+            flask_api_key = current_app.config.get('LLM_API_KEY', 'Not found')
+            flask_model = current_app.config.get('LLM_MODEL', 'deepseek-ai/DeepSeek-R1')
+            flask_base_url = current_app.config.get('LLM_BASE_URL', 'https://api.siliconflow.cn/v1')
+            logger.info(f"Flask app config - LLM_API_KEY: {flask_api_key}, LLM_MODEL: {flask_model}, LLM_BASE_URL: {flask_base_url}")
+        
+        # 优先级顺序：直接传入的参数 > 环境变量 > Flask应用配置
+        self.api_key = api_key or env_api_key or flask_api_key
+        self.model = model or env_model or flask_model
+        self.base_url = base_url or env_base_url or flask_base_url
+        
+        logger.info(f"Final LLM configuration - Model: {self.model}, Base URL: {self.base_url}")
+        logger.info(f"Final API key status: {'Set' if self.api_key and self.api_key != 'Not found' else 'Not set'}")
         
         # 强制使用配置文件中设置的模型名称
         if self.model != 'deepseek-ai/DeepSeek-R1':

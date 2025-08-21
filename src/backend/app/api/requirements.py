@@ -392,6 +392,41 @@ def get_requirement_document_version(req_id, version):
     }), 200
 
 
+@requirements_bp.route('/<req_id>/document/<int:version>', methods=['DELETE'])
+@jwt_required()
+def delete_requirement_document(req_id, version):
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # 检查需求任务是否存在
+        requirement = Requirement.query.get(req_id)
+        if not requirement:
+            return jsonify({'message': 'Requirement not found'}), 404
+        
+        # 验证当前用户是任务创建者
+        if str(requirement.creator_id) != current_user_id:
+            return jsonify({'message': 'Permission denied'}), 403
+        
+        # 获取特定版本文档
+        document = RequirementDocument.query.filter_by(
+            requirement_id=req_id, version=version
+        ).first()
+        
+        if not document:
+            return jsonify({'message': 'Document version not found'}), 404
+        
+        # 删除文档版本
+        db.session.delete(document)
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Document version deleted successfully'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Error deleting document version', 'error': str(e)}), 500
+
+
 # 为了保持兼容性，保留无版本参数的路由
 @requirements_bp.route('/<req_id>/export-markdown', methods=['GET'])
 @jwt_required()

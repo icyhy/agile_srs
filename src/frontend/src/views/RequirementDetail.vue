@@ -204,21 +204,23 @@
               </div>
             </template>
             <div class="document-generation">
-              <el-button 
-                type="primary" 
-                @click="generateDocumentHandler"
-                :loading="generating"
-                style="width: 100%"
-              >
-                生成需求文档
-              </el-button>
-              <el-button 
-                v-if="generatedDocument" 
-                @click="downloadDocument"
-                style="width: 100%; margin-top: 10px"
-              >
-                下载文档
-              </el-button>
+              <div class="button-group">
+                <el-button 
+                  type="primary" 
+                  @click="generateDocumentHandler"
+                  :loading="generating"
+                  style="width: 100%"
+                >
+                  生成需求文档
+                </el-button>
+                <el-button 
+                  v-if="generatedDocument" 
+                  @click="downloadDocument"
+                  style="width: 100%; margin-top: 10px; margin-left: 0px;"
+                >
+                  下载文档
+                </el-button>
+              </div>
               <div v-if="generatedDocument" class="document-preview">
                 <div class="version-selector">
                   <span>文档版本：</span>
@@ -230,11 +232,18 @@
                       :value="version.version"
                     />
                   </el-select>
+                  <!-- 删除版本按钮 - 只有创建者可见 -->
+                  <el-button 
+                    v-if="isOwner && documentVersions.length > 0" 
+                    type="text" 
+                    class="delete-version-btn"
+                    @click="showDeleteVersionConfirm"
+                  >
+                    <FontAwesomeIcon icon="fa-trash-can" />
+                  </el-button>
                 </div>
                 <h4>文档预览</h4>
-                <div class="document-content">
-                  {{ generatedDocument }}
-                </div>
+                <div class="document-content markdown-preview" v-html="renderMarkdown(generatedDocument)"></div>
               </div>
             </div>
           </el-card>
@@ -307,6 +316,18 @@
         <span class="dialog-footer">
           <el-button @click="showDeleteContentDialog = false">取消</el-button>
           <el-button type="primary" class="danger-btn" @click="confirmDeleteContent">确定删除</el-button>
+        </span>
+      </template>
+    </el-dialog>
+    
+    <!-- 文档版本删除确认对话框 -->
+    <el-dialog v-model="showDeleteVersionDialog" title="确认删除文档版本" width="500px">
+      <p>确定要删除版本 {{ deleteVersionNumber }} 的需求文档吗？</p>
+      <p style="color: #f56c6c;">注意：此操作无法撤销，删除后将无法恢复。</p>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showDeleteVersionDialog = false">取消</el-button>
+          <el-button type="primary" class="danger-btn" @click="confirmDeleteVersion">确定删除</el-button>
         </span>
       </template>
     </el-dialog>
@@ -448,6 +469,10 @@ const previewContentTitle = ref('');
 const showDeleteContentDialog = ref(false);
 const deleteContentId = ref('');
 const deleteContentTitle = ref('');
+
+// 文档版本删除确认对话框
+const showDeleteVersionDialog = ref(false);
+const deleteVersionNumber = ref(null);
 
 // 文档相关数据
 const generatedDocument = ref('');
@@ -887,7 +912,118 @@ const showPreviewDialog = (content) => {
 
 // 渲染Markdown内容
 const renderMarkdown = (text) => {
-  return marked(text || '');
+  var html = marked(text || '');
+  
+  // 内联表格样式，采用简洁专业风格，彻底解决列对齐和表头表体间隔问题
+  const tableStyles = `
+    <style>
+      /* 为了修复表格布局问题，使用包裹容器并确保表格元素正确渲染 */
+      .markdown-preview .table-container {
+        display: table;
+        width: 100%;
+        margin: 20px 0;
+      }
+      
+      /* 表格基础样式 */
+      .markdown-preview table {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: collapse !important;
+        border-spacing: 0 !important;
+        font-size: 14px !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif !important;
+        border: 1px solid #e0e0e0 !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+        table-layout: fixed !important;
+      }
+      
+      /* 确保表头正确显示，无间隔 */
+      .markdown-preview thead {
+        display: table-header-group !important;
+        vertical-align: middle !important;
+        border-color: inherit !important;
+      }
+      
+      /* 表头单元格样式 */
+      .markdown-preview thead th {
+        font-weight: 600 !important;
+        padding: 10px 15px !important;
+        border: 1px solid #e0e0e0 !important;
+        background-color: #f5f5f5 !important;
+        color: #333 !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+        position: relative !important;
+      }
+      
+      /* 确保表体正确显示，与表头紧密连接 */
+      .markdown-preview tbody {
+        display: table-row-group !important;
+        vertical-align: middle !important;
+        border-color: inherit !important;
+      }
+      
+      /* 表体单元格样式，确保与表头列宽对齐 */
+      .markdown-preview tbody td {
+        padding: 10px 15px !important;
+        border: 1px solid #e0e0e0 !important;
+        color: #555 !important;
+        font-size: 14px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        position: relative !important;
+      }
+      
+      /* 表格行样式 */
+      .markdown-preview tr {
+        background-color: #ffffff !important;
+        transition: background-color 0.2s ease !important;
+        display: table-row !important;
+        vertical-align: inherit !important;
+        border-color: inherit !important;
+      }
+      
+      /* 斑马纹效果 */
+      .markdown-preview tr:nth-child(even) {
+        background-color: #fafafa !important;
+      }
+      
+      /* 悬停效果 */
+      .markdown-preview tr:hover {
+        background-color: #f0f7ff !important;
+      }
+      
+      /* 处理表格溢出 */
+      .markdown-preview .table-wrapper {
+        overflow-x: auto;
+        width: 100%;
+        -webkit-overflow-scrolling: touch;
+      }
+    </style>
+  `;
+  
+  // 将内联样式添加到HTML内容的前面
+  html = tableStyles + html;
+  
+  // 特殊处理：检测并优化表格显示 - 包裹表格以确保更好的布局
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  // 找到所有表格并添加包裹容器
+  const tables = tempDiv.querySelectorAll('table');
+  tables.forEach(table => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-wrapper';
+    table.parentNode.insertBefore(wrapper, table);
+    wrapper.appendChild(table);
+  });
+  
+  // 更新HTML内容
+  html = tempDiv.innerHTML;
+  
+  console.log('srs doc preview html with optimized table styles:', html);
+  return html;
 };
 
 // 显示删除确认对话框
@@ -908,6 +1044,30 @@ const confirmDeleteContent = async () => {
   } catch (error) {
     console.error('删除内容失败:', error)
     ElMessage.error('删除内容失败: ' + (error.response?.data?.message || error.message))
+  }
+};
+
+// 显示文档版本删除确认对话框
+const showDeleteVersionConfirm = () => {
+  if (currentVersion.value) {
+    deleteVersionNumber.value = currentVersion.value
+    showDeleteVersionDialog.value = true
+  } else {
+    ElMessage.warning('请先选择要删除的文档版本')
+  }
+};
+
+// 确认删除文档版本
+const confirmDeleteVersion = async () => {
+  try {
+    await api.delete(`/requirements/${route.params.id}/document/${deleteVersionNumber.value}`)
+    ElMessage.success('文档版本删除成功')
+    showDeleteVersionDialog.value = false
+    // 刷新文档版本列表
+    await fetchDocumentVersions()
+  } catch (error) {
+    console.error('删除文档版本失败:', error)
+    ElMessage.error('删除文档版本失败: ' + (error.response?.data?.message || error.message))
   }
 };
 
@@ -989,6 +1149,14 @@ const confirmDeleteContent = async () => {
   margin-left: auto;
   display: inline-flex !important;
   align-items: center;
+}
+
+.delete-version-btn {
+  color: #f56c6c !important;
+  margin-left: 10px;
+  padding: 0 5px;
+  height: 28px;
+  min-width: 28px;
 }
 
 /* Markdown编辑器样式 */
@@ -1107,9 +1275,108 @@ const confirmDeleteContent = async () => {
   background-color: #fff;
 }
 
+/* 表格基本样式 */
+.markdown-preview table, 
+.markdown-preview .markdown-table, 
+.markdown-table {
+  display: block !important;
+  width: 100% !important;
+  overflow: auto !important;
+  border-collapse: collapse !important;
+  margin-top: 0 !important;
+  margin-bottom: 16px !important;
+  border: 2px solid #999 !important; /* 增加表格外边框宽度和颜色 */
+}
+
+/* 表头样式 */
+.markdown-preview th, 
+.markdown-preview .markdown-table-header, 
+.markdown-table-header {
+  font-weight: 600 !important;
+  padding: 12px 15px !important;
+  border: 1px solid #999 !important; /* 使用更明显的边框颜色 */
+  background-color: #f6f8fa !important;
+  color: #2c3e50 !important;
+  text-align: left !important;
+}
+
+/* 单元格样式 */
+.markdown-preview td, 
+.markdown-preview .markdown-table-cell, 
+.markdown-table-cell {
+  padding: 12px 15px !important;
+  border: 1px solid #999 !important; /* 使用更明显的边框颜色 */
+  color: #333 !important;
+  font-size: 14px !important;
+}
+
+/* 行样式 */
+.markdown-preview tr, 
+.markdown-preview .markdown-table-row, 
+.markdown-table-row {
+  background-color: #fff !important;
+  border-top: 1px solid #c6cbd1 !important;
+}
+
+/* 交替行背景色 */
+.markdown-preview tr:nth-child(2n), 
+.markdown-preview .markdown-table-row:nth-child(2n), 
+.markdown-table-row:nth-child(2n) {
+  background-color: #f6f8fa !important;
+}
+
+/* 确保表格在预览容器中正确显示 */
+.markdown-preview table {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+
+/* 确保表格样式优先级更高 */
+.markdown-preview .markdown-table {
+  display: block !important;
+  width: 100% !important;
+  overflow: auto !important;
+  border-collapse: collapse !important;
+  border: 2px solid #999 !important;
+  margin-bottom: 16px !important;
+}
+
+.markdown-preview .markdown-table-header {
+  font-weight: 600 !important;
+  padding: 12px 15px !important;
+  border: 1px solid #999 !important;
+  background-color: #f6f8fa !important;
+  color: #2c3e50 !important;
+  text-align: left !important;
+}
+
+.markdown-preview .markdown-table-cell {
+  padding: 12px 15px !important;
+  border: 1px solid #999 !important;
+  color: #333 !important;
+  font-size: 14px !important;
+}
+
+/* 为表格行添加样式 */
+.markdown-preview .markdown-table-row {
+  background-color: #fff !important;
+  border-top: 1px solid #999 !important;
+}
+
+.markdown-preview .markdown-table-row:nth-child(2n) {
+  background-color: #f6f8fa !important;
+}
+
 .submit-time {
   color: #999;
   font-size: 12px;
+}
+
+.document-generation .button-group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .participant-item {
@@ -1189,6 +1456,23 @@ const confirmDeleteContent = async () => {
 .document-content {
   white-space: pre-wrap;
   line-height: 1.6;
+}
+
+/* 文档版本选择器样式 */
+.version-selector {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.version-selector span {
+  margin-right: 10px;
+  white-space: nowrap;
+}
+
+.version-selector .el-select {
+  flex: 1;
+  max-width: 100%;
 }
 
 .empty {
