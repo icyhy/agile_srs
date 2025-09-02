@@ -1,5 +1,5 @@
 from .. import db
-from werkzeug.security import generate_password_hash, check_password_hash
+import hashlib
 from datetime import datetime
 
 
@@ -18,10 +18,17 @@ class User(db.Model):
     user_requirements = db.relationship('UserRequirement', backref='user', lazy='dynamic')
     
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
+        self.password_hash = hashlib.pbkdf2_hmac('sha256', 
+                                               password.encode('utf-8'), 
+                                               b'salt', 
+                                               100000).hex()
     
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        password_hash = hashlib.pbkdf2_hmac('sha256', 
+                                          password.encode('utf-8'), 
+                                          b'salt', 
+                                          100000).hex()
+        return self.password_hash == password_hash
     
     def to_dict(self):
         return {

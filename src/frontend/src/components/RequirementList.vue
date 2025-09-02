@@ -29,6 +29,7 @@
 
 <script>
 import { ref, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRequirementStore } from '../store'
 import api from '../utils/api'
 
@@ -69,9 +70,12 @@ export default {
       fetchRequirements()
     })
     
+    // 使用storeToRefs保持响应式
+    const { requirements } = storeToRefs(requirementStore)
+    
     // 暴露刷新方法
     return {
-      requirements: requirementStore.requirements,
+      requirements,
       loading,
       formatDate,
       handleView,

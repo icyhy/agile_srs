@@ -5,6 +5,7 @@ from ..models.document import RequirementDocument
 from ..models.user import User
 from .. import db
 from ..utils.llm_integration import DocumentGenerator
+from ..utils.database_adapter import get_database_adapter
 import uuid
 from datetime import datetime
 from io import BytesIO
@@ -12,6 +13,7 @@ from flask import send_file
 import os
 import time
 import logging
+import traceback
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -23,39 +25,83 @@ requirements_bp = Blueprint('requirements', __name__)
 @jwt_required()
 def create_requirement():
     try:
+        print("=== 开始创建需求 ===")
         current_user_id = get_jwt_identity()
         data = request.get_json()
+        print(f"接收到的需求数据: {data}")
+        print(f"当前用户ID: {current_user_id}")
         
         # 验证输入
         if not data or not data.get('title'):
             return jsonify({'message': 'Title is required'}), 400
         
-        # 创建需求任务
-        requirement = Requirement(
-            id=str(uuid.uuid4()),
-            title=data['title'],
-            description=data.get('description', ''),
-            creator_id=current_user_id
-        )
+        print("初始化数据库适配器")
+        db_adapter = get_database_adapter()
         
-        db.session.add(requirement)
+        # 生成需求ID
+        requirement_id = str(uuid.uuid4())
+        print(f"生成需求ID: {requirement_id}")
+        
+        # 创建需求任务
+        requirement_data = {
+            'id': requirement_id,
+            'title': data['title'],
+            'description': data.get('description', ''),
+            'creator_id': current_user_id,
+            'created_at': datetime.utcnow().isoformat(),
+            'status': 'active'
+        }
+        
+        print(f"准备插入需求数据: {requirement_data}")
+        
+        # 根据连接方式选择插入方法
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API插入需求")
+            result = db_adapter.supabase_rest_adapter.insert('requirements', requirement_data)
+            print(f"需求插入结果: {result}")
+        else:
+            print("使用原始SQL插入需求")
+            insert_sql = """
+                INSERT INTO requirements (id, title, description, creator_id, created_at, status)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            db_adapter.execute_raw_query(insert_sql, (
+                requirement_id, data['title'], data.get('description', ''),
+                current_user_id, datetime.utcnow(), 'active'
+            ))
         
         # 创建用户-需求关联（创建者）
-        user_req = UserRequirement(
-            user_id=current_user_id,
-            requirement_id=requirement.id,
-            role='owner'
-        )
+        user_req_data = {
+            'user_id': current_user_id,
+            'requirement_id': requirement_id,
+            'role': 'owner',
+            'joined_at': datetime.utcnow().isoformat()
+        }
         
-        db.session.add(user_req)
-        db.session.commit()
+        print(f"准备插入用户需求关联数据: {user_req_data}")
         
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API插入用户需求关联")
+            result = db_adapter.supabase_rest_adapter.insert('user_requirements', user_req_data)
+            print(f"用户需求关联插入结果: {result}")
+        else:
+            print("使用原始SQL插入用户需求关联")
+            insert_sql = """
+                INSERT INTO user_requirements (user_id, requirement_id, role, joined_at)
+                VALUES (%s, %s, %s, %s)
+            """
+            db_adapter.execute_raw_query(insert_sql, (
+                current_user_id, requirement_id, 'owner', datetime.utcnow()
+            ))
+        
+        print("需求创建成功")
         return jsonify({
             'message': 'Requirement created successfully',
-            'requirement': requirement.to_dict()
+            'requirement': requirement_data
         }), 201
     except Exception as e:
-        db.session.rollback()
+        print(f"创建需求时发生错误: {str(e)}")
+        traceback.print_exc()
         return jsonify({'message': 'Error creating requirement', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>/invite', methods=['POST'])
@@ -111,50 +157,123 @@ def invite_member(req_id):
 @jwt_required()
 def list_requirements():
     try:
+        print("=== 开始获取需求列表 ===")
         current_user_id = get_jwt_identity()
+        print(f"当前用户ID: {current_user_id}")
+        
+        print("初始化数据库适配器")
+        db_adapter = get_database_adapter()
         
         # 获取用户参与的所有需求任务
-        user_requirements = UserRequirement.query.filter_by(user_id=current_user_id).all()
-        req_ids = [ur.requirement_id for ur in user_requirements]
+        print("查询用户参与的需求任务")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询用户需求关联")
+            user_requirements = db_adapter.supabase_rest_adapter.select(
+                'user_requirements', 
+                filters={'user_id': current_user_id}
+            )
+            print(f"用户需求关联查询结果: {user_requirements}")
+        else:
+            print("使用原始SQL查询用户需求关联")
+            select_sql = "SELECT * FROM user_requirements WHERE user_id = %s"
+            user_requirements = db_adapter.execute_raw_query(select_sql, (current_user_id,))
         
-        # 查询需求任务
-        requirements = Requirement.query.filter(Requirement.id.in_(req_ids)).all()
+        if not user_requirements:
+            print("用户没有参与任何需求任务")
+            return jsonify({'requirements': []}), 200
         
-        # 为每个需求添加用户角色信息
+        # 提取需求ID列表
+        req_ids = [ur['requirement_id'] for ur in user_requirements]
+        print(f"需求ID列表: {req_ids}")
+        
+        # 查询需求任务详情
         requirements_with_role = []
-        for req in requirements:
-            # 查找当前用户在该需求中的角色
-            user_req = UserRequirement.query.get((current_user_id, req.id))
-            req_dict = req.to_dict()
-            req_dict['role'] = user_req.role if user_req else 'member'
-            requirements_with_role.append(req_dict)
+        for req_id in req_ids:
+            print(f"查询需求详情: {req_id}")
+            if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+                print("使用Supabase REST API查询需求详情")
+                requirements = db_adapter.supabase_rest_adapter.select(
+                    'requirements', 
+                    filters={'id': req_id}
+                )
+                print(f"需求详情查询结果: {requirements}")
+            else:
+                print("使用原始SQL查询需求详情")
+                select_sql = "SELECT * FROM requirements WHERE id = %s"
+                requirements = db_adapter.execute_raw_query(select_sql, (req_id,))
+            
+            if requirements:
+                req = requirements[0]  # 取第一个结果
+                # 查找当前用户在该需求中的角色
+                user_req = next((ur for ur in user_requirements if ur['requirement_id'] == req_id), None)
+                req['role'] = user_req['role'] if user_req else 'member'
+                requirements_with_role.append(req)
         
+        print(f"最终需求列表: {requirements_with_role}")
         return jsonify({
             'requirements': requirements_with_role
         }), 200
     except Exception as e:
+        print(f"获取需求列表时发生错误: {str(e)}")
+        traceback.print_exc()
         return jsonify({'message': 'Error fetching requirements', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>', methods=['GET'])
 @jwt_required()
 def get_requirement(req_id):
     try:
+        print(f"=== 开始获取需求详情: {req_id} ===")
         current_user_id = get_jwt_identity()
+        print(f"当前用户ID: {current_user_id}")
+        
+        print("初始化数据库适配器")
+        db_adapter = get_database_adapter()
         
         # 检查需求任务是否存在
-        requirement = Requirement.query.get(req_id)
-        if not requirement:
+        print(f"查询需求详情: {req_id}")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询需求详情")
+            requirements = db_adapter.supabase_rest_adapter.select(
+                'requirements', 
+                filters={'id': req_id}
+            )
+            print(f"需求详情查询结果: {requirements}")
+        else:
+            print("使用原始SQL查询需求详情")
+            select_sql = "SELECT * FROM requirements WHERE id = %s"
+            requirements = db_adapter.execute_raw_query(select_sql, (req_id,))
+        
+        if not requirements:
+            print("需求不存在")
             return jsonify({'message': 'Requirement not found'}), 404
         
+        requirement = requirements[0]
+        
         # 检查用户是否有权限访问
-        user_req = UserRequirement.query.get((current_user_id, req_id))
-        if not user_req:
+        print(f"检查用户权限: user_id={current_user_id}, requirement_id={req_id}")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询用户权限")
+            user_requirements = db_adapter.supabase_rest_adapter.select(
+                'user_requirements', 
+                filters={'user_id': current_user_id, 'requirement_id': req_id}
+            )
+            print(f"用户权限查询结果: {user_requirements}")
+        else:
+            print("使用原始SQL查询用户权限")
+            select_sql = "SELECT * FROM user_requirements WHERE user_id = %s AND requirement_id = %s"
+            user_requirements = db_adapter.execute_raw_query(select_sql, (current_user_id, req_id))
+        
+        if not user_requirements:
+            print("用户无权限访问")
             return jsonify({'message': 'Permission denied'}), 403
         
+        print("需求详情获取成功")
         return jsonify({
-            'requirement': requirement.to_dict()
+            'requirement': requirement
         }), 200
     except Exception as e:
+        print(f"获取需求详情时发生错误: {str(e)}")
+        traceback.print_exc()
         return jsonify({'message': 'Error fetching requirement', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>/participants', methods=['GET'])
@@ -162,75 +281,193 @@ def get_requirement(req_id):
 def get_participants(req_id):
     try:
         current_user_id = get_jwt_identity()
+        db_adapter = get_database_adapter()
+        
+        print(f"[get_participants] Starting for req_id: {req_id}, user_id: {current_user_id}")
         
         # 检查需求任务是否存在
-        requirement = Requirement.query.get(req_id)
-        if not requirement:
-            return jsonify({'message': 'Requirement not found'}), 404
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            # 使用Supabase REST API
+            requirement_response = db_adapter.supabase_rest_adapter.select('requirements', filters={'id': req_id})
+            print(f"[get_participants] Requirement query response: {requirement_response}")
+            
+            if not requirement_response:
+                return jsonify({'message': 'Requirement not found'}), 404
+            
+            # 检查用户是否有权限访问
+            user_req_response = db_adapter.supabase_rest_adapter.select('user_requirements', filters={'user_id': current_user_id, 'requirement_id': req_id})
+            print(f"[get_participants] User requirement query response: {user_req_response}")
+            
+            if not user_req_response:
+                return jsonify({'message': 'Permission denied'}), 403
+            
+            # 获取参与者列表
+            user_requirements_response = db_adapter.supabase_rest_adapter.select('user_requirements', filters={'requirement_id': req_id})
+            print(f"[get_participants] User requirements query response: {user_requirements_response}")
+            
+            participants = []
+            for ur in user_requirements_response:
+                user_response = db_adapter.supabase_rest_adapter.select('users', filters={'id': ur['user_id']})
+                print(f"[get_participants] User query response for user_id {ur['user_id']}: {user_response}")
+                
+                if user_response:
+                    user = user_response[0]
+                    participants.append({
+                        'id': user['id'],
+                        'username': user['username'],
+                        'role': ur['role']
+                    })
+        else:
+            # 使用原始SQL查询
+            requirement_query = "SELECT * FROM requirements WHERE id = %s"
+            requirement_result = db_adapter.execute_query(requirement_query, (req_id,))
+            print(f"[get_participants] Requirement query result: {requirement_result}")
+            
+            if not requirement_result:
+                return jsonify({'message': 'Requirement not found'}), 404
+            
+            # 检查用户是否有权限访问
+            user_req_query = "SELECT * FROM user_requirements WHERE user_id = %s AND requirement_id = %s"
+            user_req_result = db_adapter.execute_query(user_req_query, (current_user_id, req_id))
+            print(f"[get_participants] User requirement query result: {user_req_result}")
+            
+            if not user_req_result:
+                return jsonify({'message': 'Permission denied'}), 403
+            
+            # 获取参与者列表
+            user_requirements_query = "SELECT * FROM user_requirements WHERE requirement_id = %s"
+            user_requirements_result = db_adapter.execute_query(user_requirements_query, (req_id,))
+            print(f"[get_participants] User requirements query result: {user_requirements_result}")
+            
+            participants = []
+            for ur in user_requirements_result:
+                user_query = "SELECT * FROM users WHERE id = %s"
+                user_result = db_adapter.execute_query(user_query, (ur['user_id'],))
+                print(f"[get_participants] User query result for user_id {ur['user_id']}: {user_result}")
+                
+                if user_result:
+                    user = user_result[0]
+                    participants.append({
+                        'id': user['id'],
+                        'username': user['username'],
+                        'role': ur['role']
+                    })
         
-        # 检查用户是否有权限访问
-        user_req = UserRequirement.query.get((current_user_id, req_id))
-        if not user_req:
-            return jsonify({'message': 'Permission denied'}), 403
-        
-        # 获取参与者列表
-        user_requirements = UserRequirement.query.filter_by(requirement_id=req_id).all()
-        participants = []
-        for ur in user_requirements:
-            user = User.query.get(ur.user_id)
-            if user:
-                participants.append({
-                    'id': user.id,
-                    'username': user.username,
-                    'role': ur.role
-                })
-        
+        print(f"[get_participants] Final participants: {participants}")
         return jsonify({
             'participants': participants
         }), 200
     except Exception as e:
+        print(f"[get_participants] Error: {str(e)}")
+        print(f"[get_participants] Traceback: {traceback.format_exc()}")
         return jsonify({'message': 'Error fetching participants', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>/contents', methods=['GET'])
 @jwt_required()
 def get_contents(req_id):
     try:
+        print(f"=== 开始获取需求内容: {req_id} ===")
         current_user_id = get_jwt_identity()
+        print(f"当前用户ID: {current_user_id}")
+        
+        print("初始化数据库适配器")
+        db_adapter = get_database_adapter()
         
         # 检查需求任务是否存在
-        requirement = Requirement.query.get(req_id)
-        if not requirement:
+        print(f"查询需求详情: {req_id}")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询需求详情")
+            requirements = db_adapter.supabase_rest_adapter.select(
+                'requirements', 
+                filters={'id': req_id}
+            )
+            print(f"需求详情查询结果: {requirements}")
+        else:
+            print("使用原始SQL查询需求详情")
+            select_sql = "SELECT * FROM requirements WHERE id = %s"
+            requirements = db_adapter.execute_raw_query(select_sql, (req_id,))
+        
+        if not requirements:
+            print("需求不存在")
             return jsonify({'message': 'Requirement not found'}), 404
         
         # 检查用户是否有权限访问
-        user_req = UserRequirement.query.get((current_user_id, req_id))
-        if not user_req:
+        print(f"检查用户权限: user_id={current_user_id}, requirement_id={req_id}")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询用户权限")
+            user_requirements = db_adapter.supabase_rest_adapter.select(
+                'user_requirements', 
+                filters={'user_id': current_user_id, 'requirement_id': req_id}
+            )
+            print(f"用户权限查询结果: {user_requirements}")
+        else:
+            print("使用原始SQL查询用户权限")
+            select_sql = "SELECT * FROM user_requirements WHERE user_id = %s AND requirement_id = %s"
+            user_requirements = db_adapter.execute_raw_query(select_sql, (current_user_id, req_id))
+        
+        if not user_requirements:
+            print("用户无权限访问")
             return jsonify({'message': 'Permission denied'}), 403
         
         # 获取已提交内容
-        contents = RequirementContent.query.filter_by(requirement_id=req_id).all()
+        print(f"查询需求内容: {req_id}")
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            print("使用Supabase REST API查询需求内容")
+            contents = db_adapter.supabase_rest_adapter.select(
+                'requirement_contents', 
+                filters={'requirement_id': req_id}
+            )
+            print(f"需求内容查询结果: {contents}")
+        else:
+            print("使用原始SQL查询需求内容")
+            select_sql = "SELECT * FROM requirement_contents WHERE requirement_id = %s"
+            contents = db_adapter.execute_raw_query(select_sql, (req_id,))
         
+        print("需求内容获取成功")
         return jsonify({
-            'contents': [content.to_dict() for content in contents]
+            'contents': contents or []
         }), 200
     except Exception as e:
+        print(f"获取需求内容时发生错误: {str(e)}")
+        traceback.print_exc()
         return jsonify({'message': 'Error fetching contents', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>/submit', methods=['POST'])
 @jwt_required()
 def submit_content(req_id):
+    db_adapter = None
     try:
         current_user_id = get_jwt_identity()
+        print(f"[submit_content] Starting for req_id: {req_id}, user_id: {current_user_id}")
+        db_adapter = get_database_adapter()
+        print(f"[submit_content] db_adapter: {db_adapter}, type: {type(db_adapter)}")
+        if hasattr(db_adapter, 'connection_method'):
+            print(f"[submit_content] connection_method: {db_adapter.connection_method}")
+        else:
+            print(f"[submit_content] No connection_method attribute")
         
         # 检查需求任务是否存在
-        requirement = Requirement.query.get(req_id)
-        if not requirement:
-            return jsonify({'message': 'Requirement not found'}), 404
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            requirement_response = db_adapter.supabase_rest_adapter.select('requirements', filters={'id': req_id})
+            if not requirement_response:
+                return jsonify({'message': 'Requirement not found'}), 404
+        else:
+            print(f"[submit_content] Querying requirement with id: {req_id}")
+            requirement = Requirement.query.get(req_id)
+            print(f"[submit_content] Requirement query result: {requirement}")
+            if not requirement:
+                print(f"[submit_content] Requirement not found for id: {req_id}")
+                return jsonify({'message': 'Requirement not found'}), 404
         
         # 检查用户是否有权限提交
-        user_req = UserRequirement.query.get((current_user_id, req_id))
-        if not user_req:
-            return jsonify({'message': 'Permission denied'}), 403
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            user_req_response = db_adapter.supabase_rest_adapter.select('user_requirements', filters={'user_id': current_user_id, 'requirement_id': req_id})
+            if not user_req_response:
+                return jsonify({'message': 'Permission denied'}), 403
+        else:
+            user_req = UserRequirement.query.get((current_user_id, req_id))
+            if not user_req:
+                return jsonify({'message': 'Permission denied'}), 403
         
         # 处理文本内容
         text_content = request.form.get('text', '')
@@ -265,23 +502,46 @@ def submit_content(req_id):
                         content_type = 'file'
         
         # 保存内容记录
-        content_record = RequirementContent(
-            requirement_id=req_id,
-            content_type=content_type,
-            content_text=text_content if content_type in ['text', 'markdown'] else None,
-            file_path=file_path,
-            submitted_by=current_user_id
-        )
+        content_data = {
+            'id': str(uuid.uuid4()),
+            'requirement_id': req_id,
+            'content_type': content_type,
+            'content_text': text_content if content_type in ['text', 'markdown'] else None,
+            'file_path': file_path,
+            'submitted_by': current_user_id,
+            'created_at': datetime.utcnow().isoformat()
+        }
         
-        db.session.add(content_record)
-        db.session.commit()
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            content_record = db_adapter.supabase_rest_adapter.insert('requirement_contents', content_data)
+            if not content_record:
+                return jsonify({'message': 'Error submitting content'}), 500
+        else:
+            content_record = RequirementContent(
+                requirement_id=req_id,
+                content_type=content_type,
+                content_text=text_content if content_type in ['text', 'markdown'] else None,
+                file_path=file_path,
+                submitted_by=current_user_id
+            )
+            db.session.add(content_record)
+            db.session.commit()
+            content_data = content_record.to_dict()
         
         return jsonify({
             'message': 'Content submitted successfully',
-            'content': content_record.to_dict()
+            'content': content_data
         }), 201
     except Exception as e:
-        db.session.rollback()
+        print(f"[submit_content] Exception occurred: {str(e)}")
+        print(f"[submit_content] Exception type: {type(e)}")
+        import traceback
+        print(f"[submit_content] Traceback: {traceback.format_exc()}")
+        try:
+            if db_adapter and hasattr(db_adapter, 'connection_method') and db_adapter.connection_method != 'rest_api':
+                db.session.rollback()
+        except:
+            print(f"[submit_content] Error in rollback")
         return jsonify({'message': 'Error submitting content', 'error': str(e)}), 500
 
 @requirements_bp.route('/<req_id>/generate-document', methods=['POST'])
@@ -350,22 +610,66 @@ def generate_document(req_id):
 @requirements_bp.route('/<req_id>/documents', methods=['GET'])
 @jwt_required()
 def get_requirement_documents(req_id):
-    user_id = get_jwt_identity()
-    
-    # 检查用户权限
-    if not UserRequirement.query.filter_by(
-        user_id=user_id, requirement_id=req_id
-    ).first():  
-        return jsonify({'message': 'Unauthorized access'}), 403
-    
-    # 获取所有文档版本
-    documents = RequirementDocument.query.filter_by(
-        requirement_id=req_id
-    ).order_by(RequirementDocument.version.desc()).all()
-    
-    return jsonify({
-        'documents': [doc.to_dict() for doc in documents]
-    }), 200
+    try:
+        user_id = get_jwt_identity()
+        db_adapter = get_database_adapter()
+        
+        print(f"[get_requirement_documents] Starting for req_id: {req_id}, user_id: {user_id}")
+        
+        # 检查用户权限
+        if hasattr(db_adapter, 'connection_method') and db_adapter.connection_method == 'rest_api':
+            # 使用Supabase REST API
+            user_req_response = db_adapter.supabase_rest_adapter.select('user_requirements', filters={'user_id': user_id, 'requirement_id': req_id})
+            print(f"[get_requirement_documents] User requirement query response: {user_req_response}")
+            
+            if not user_req_response:
+                return jsonify({'message': 'Unauthorized access'}), 403
+            
+            # 获取所有文档版本
+            documents_response = db_adapter.supabase_rest_adapter.select('requirement_documents', filters={'requirement_id': req_id})
+            print(f"[get_requirement_documents] Documents query response: {documents_response}")
+            
+            documents = []
+            for doc in documents_response:
+                documents.append({
+                    'id': doc['id'],
+                    'requirement_id': doc['requirement_id'],
+                    'version': doc['version'],
+                    'content': doc['content'],
+                    'created_at': doc['created_at']
+                })
+        else:
+            # 使用原始SQL查询
+            user_req_query = "SELECT * FROM user_requirements WHERE user_id = %s AND requirement_id = %s"
+            user_req_result = db_adapter.execute_query(user_req_query, (user_id, req_id))
+            print(f"[get_requirement_documents] User requirement query result: {user_req_result}")
+            
+            if not user_req_result:
+                return jsonify({'message': 'Unauthorized access'}), 403
+            
+            # 获取所有文档版本
+            documents_query = "SELECT * FROM requirement_documents WHERE requirement_id = %s ORDER BY version DESC"
+            documents_result = db_adapter.execute_query(documents_query, (req_id,))
+            print(f"[get_requirement_documents] Documents query result: {documents_result}")
+            
+            documents = []
+            for doc in documents_result:
+                documents.append({
+                    'id': doc['id'],
+                    'requirement_id': doc['requirement_id'],
+                    'version': doc['version'],
+                    'content': doc['content'],
+                    'created_at': doc['created_at']
+                })
+        
+        print(f"[get_requirement_documents] Final documents: {len(documents)} documents found")
+        return jsonify({
+            'documents': documents
+        }), 200
+    except Exception as e:
+        print(f"[get_requirement_documents] Error: {str(e)}")
+        print(f"[get_requirement_documents] Traceback: {traceback.format_exc()}")
+        return jsonify({'message': 'Error fetching documents', 'error': str(e)}), 500
 
 
 @requirements_bp.route('/<req_id>/documents/<int:version>', methods=['GET'])

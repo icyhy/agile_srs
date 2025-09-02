@@ -22,7 +22,11 @@ def make_shell_context():
     )
 
 with app.app_context():
-    db.create_all()
+    # 只有在非Supabase模式下才创建表
+    if app.config.get('DATABASE_TYPE', '').lower() != 'supabase':
+        db.create_all()
+    else:
+        print("使用Supabase模式，跳过SQLAlchemy表创建")
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5001)

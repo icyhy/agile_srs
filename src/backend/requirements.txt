@@ -7,3 +7,7 @@ openai==0.27.8
 python-dotenv==1.0.0
 Werkzeug==2.3.6
 redis==4.6.0
+# PostgreSQL和Supabase支持
+psycopg2-binary==2.9.7
+supabase==1.0.4
+sqlalchemy==1.4.53

@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # MySQL数据库服务（可选，当使用MySQL时）
+  mysql:
+    image: mysql:8.0
+    container_name: agile_srs_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: agile_srs
+      MYSQL_USER: agile_user
+      MYSQL_PASSWORD: agile_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - agile_srs_network
+    profiles:
+      - mysql
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: agile_srs_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - agile_srs_network
+
+  # 后端服务
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    container_name: agile_srs_backend
+    environment:
+      # Flask配置
+      - FLASK_CONFIG=development
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-your-jwt-secret-key-here}
+      
+      # 数据库配置
+      - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
+      
+      # SQLite配置（当DATABASE_TYPE=sqlite时使用）
+      - SQLITE_DATABASE_URI=${SQLITE_DATABASE_URI:-sqlite:///app.db}
+      
+      # Supabase配置（当DATABASE_TYPE=supabase时使用）
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_DB_PASSWORD=${SUPABASE_DB_PASSWORD}
+      
+      # MySQL配置（当DATABASE_TYPE=mysql时使用）
+      - DATABASE_URL=${DATABASE_URL:-mysql+pymysql://agile_user:agile_password@mysql:3306/agile_srs}
+      
+      # Redis配置
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      
+      # LLM配置
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.siliconflow.cn/v1}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-ai/DeepSeek-R1}
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./src/backend:/app
+      - backend_uploads:/app/uploads
+    depends_on:
+      - redis
+    networks:
+      - agile_srs_network
+    profiles:
+      - backend
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: agile_srs_frontend
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:5000}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src/frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - agile_srs_network
+    profiles:
+      - frontend
+
+# 网络配置
+networks:
+  agile_srs_network:
+    driver: bridge
+
+# 数据卷配置
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
